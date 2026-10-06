@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Classroom Seating Arrangement Builder</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- html2canvas for Exporting PNG -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    .desk-zone {
+      transition: all 0.15s ease;
+    }
+    .desk-zone.drag-over {
+      background-color: rgba(59, 130, 246, 0.4) !important;
+      border-color: #1d4ed8 !important;
+      transform: scale(1.05);
+    }
+    .student-card {
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+    .student-card:active {
+      cursor: grabbing;
+    }
+    .student-card.dragging {
+      opacity: 0.3;
+    }
+    /* Custom scrollbar for roster */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    #canvasWrapper {
+      transform-origin: center center;
+      transition: transform 0.05s ease-out;
+      will-change: transform;
+    }
+    #canvasContainer {
+      cursor: grab;
+      user-select: none;
+    }
+    #canvasContainer:active {
+      cursor: grabbing;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans">
+
+  <!-- Main Layout -->
+  <div class="flex flex-col lg:flex-row h-screen overflow-hidden">
+    
+    <!-- Sidebar / Controls -->
+    <div class="w-full lg:w-96 bg-white border-r border-slate-200 p-5 flex flex-col gap-4 overflow-y-auto shadow-md z-10 shrink-0">
+      <div>
+        <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <i data-lucide="layout-grid" class="w-6 h-6 text-indigo-600"></i>
+          Seating Arranger
+        </h1>
+        <p class="text-xs text-slate-500 mt-1">Drag and drop students or auto-assign to desk clusters.</p>
+      </div>
+
+      <!-- Inputs for Roster -->
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-blue-700 mb-1 flex items-center justify-between">
+            <span>Male Students (One per line)</span>
+            <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold" id="m-count">0</span>
+          </label>
+          <textarea id="maleInput" rows="4" class="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none bg-blue-50/30" placeholder="William&#10;Harry&#10;Ambrose&#10;Heiden..."></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-pink-700 mb-1 flex items-center justify-between">
+            <span>Female Students (One per line)</span>
+            <span class="text-[10px] bg-pink-100 text-pink-800 px-1.5 py-0.5 rounded font-bold" id="f-count">0</span>
+          </label>
+          <textarea id="femaleInput" rows="4" class="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:outline-none resize-none bg-pink-50/30" placeholder="Anna&#10;Megan&#10;Hannah&#10;Freida..."></textarea>
+        </div>
+
+        <button id="btnGenerate" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
+          <i data-lucide="users" class="w-4 h-4"></i> Generate Roster
+        </button>
+      </div>
+
+      <hr class="border-slate-200">
+
+      <!-- Action Buttons -->
+      <div class="space-y-2">
+        <label class="block text-xs font-semibold text-slate-700">Auto-Assign Options</label>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="btnRandomAssign" class="py-2 px-3 bg-slate-800 hover:bg-slate-900 text-white font-medium rounded-lg text-xs transition flex items-center justify-center gap-1">
+            <i data-lucide="shuffle" class="w-3.5 h-3.5"></i> Random
+          </button>
+          <button id="btnBalancedAssign" class="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-xs transition flex items-center justify-center gap-1">
+            <i data-lucide="scale" class="w-3.5 h-3.5"></i> 50/50 Gender
+          </button>
+        </div>
+        <button id="btnReset" class="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium rounded-lg text-xs transition flex items-center justify-center gap-1 border border-slate-300">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset All Seats
+        </button>
+      </div>
+
+      <hr class="border-slate-200">
+
+      <!-- Unassigned Roster Pool -->
+      <div class="flex-1 flex flex-col min-h-[150px]">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-700 flex items-center gap-1">
+            <i data-lucide="user-minus" class="w-3.5 h-3.5 text-slate-500"></i> Unassigned
+          </span>
+          <span id="unassignedCount" class="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full font-bold">0</span>
+        </div>
+        <div id="unassignedPool" class="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-2.5 overflow-y-auto flex flex-wrap gap-1.5 content-start bg-slate-50/50 min-h-[100px]" ondragover="allowDrop(event)" ondrop="dropToPool(event)">
+          <!-- Dynamic Unassigned Cards -->
+        </div>
+      </div>
+
+      <!-- Export Button -->
+      <button id="btnExport" class="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-lg text-xs shadow-md transition flex items-center justify-center gap-2">
+        <i data-lucide="download" class="w-4 h-4"></i> Export Seating Chart PNG
+      </button>
+    </div>
+
+    <!-- Canvas Area with Zooming -->
+    <div class="flex-1 bg-slate-200 p-4 relative overflow-hidden flex flex-col items-center justify-center" id="canvasContainer">
+      
+      <!-- Floating Zoom Controls -->
+      <div class="absolute top-4 right-4 z-30 bg-white/90 backdrop-blur border border-slate-300 shadow-md rounded-lg flex items-center p-1 gap-1">
+        <button id="btnZoomOut" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 transition" title="Zoom Out">
+          <i data-lucide="zoom-out" class="w-4 h-4"></i>
+        </button>
+        <span id="zoomLabel" class="text-xs font-semibold text-slate-700 w-12 text-center select-none">100%</span>
+        <button id="btnZoomIn" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 transition" title="Zoom In">
+          <i data-lucide="zoom-in" class="w-4 h-4"></i>
+        </button>
+        <button id="btnZoomReset" class="p-1.5 hover:bg-slate-100 rounded text-slate-700 transition border-l border-slate-200 ml-1" title="Reset Zoom">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Zoomable Wrapper -->
+      <div id="canvasWrapper" class="flex items-center justify-center">
+        <div id="classroomCanvas" class="relative bg-[#cfa170] shadow-2xl rounded-sm overflow-hidden border-4 border-amber-950/30 select-none" style="width: 1320px; height: 920px; min-width: 1320px; min-height: 920px;">
+          
+          <!-- Background Layout Items matching Floor Plan image -->
+          <div class="absolute inset-0 pointer-events-none">
+            <!-- Wood Grain Pattern -->
+            <div class="absolute inset-0 opacity-10 bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:12px_12px]"></div>
+
+            <!-- Lockers (Top) -->
+            <div class="absolute top-0 left-0 right-0 h-6 bg-[#dfb281] border-b-2 border-slate-900 flex items-center justify-center font-bold text-slate-800 text-[11px]">
+              Student lockers
+            </div>
+
+            <!-- Top Passage Way -->
+            <div class="absolute top-6 left-0 right-44 h-6 bg-[#e2be9b] border-b-2 border-slate-900 flex items-center justify-center text-red-600 font-bold text-xs tracking-wide">
+              Please keep clear - Passage way
+            </div>
+
+            <!-- Top Right Wooden Block -->
+            <div class="absolute top-0 right-28 w-14 h-20 bg-[#cca379] border-2 border-slate-900"></div>
+
+            <!-- Left Passage Way -->
+            <div class="absolute top-12 bottom-12 left-0 w-12 bg-[#cca379] border-r-2 border-slate-900 flex items-center justify-center">
+              <span class="text-red-600 font-bold text-xs tracking-wide uppercase -rotate-90 whitespace-nowrap">Please keep clear - Passage way</span>
+            </div>
+
+            <!-- Right Whiteboard -->
+            <div class="absolute top-36 bottom-36 right-0 w-8 bg-slate-200 border-2 border-slate-700 rounded-l flex items-center justify-center shadow-md">
+              <span class="font-bold text-slate-800 text-xs tracking-widest [writing-mode:vertical-rl] rotate-180 uppercase">Whiteboard</span>
+            </div>
+
+            <!-- Bottom Passage Way & Cabinets -->
+            <div class="absolute bottom-6 left-16 right-16 h-6 bg-[#e2be9b] border-t-2 border-slate-900 flex items-center justify-center text-red-600 font-bold text-xs tracking-wide z-10">
+              Please keep clear - Passage way
+            </div>
+            <div class="absolute bottom-0 left-16 right-16 h-6 bg-[#dfb281] border-t-2 border-slate-900 flex items-center justify-center font-bold text-slate-800 text-[11px] z-10">
+              School bag cabinets
+            </div>
+
+            <!-- Doors -->
+            <div class="absolute bottom-0 left-1 w-12 h-10 border-2 border-slate-900 bg-amber-100 flex items-center justify-center text-[10px] font-bold text-slate-800 z-20">🚪 Door</div>
+            <div class="absolute bottom-0 right-1 w-12 h-10 border-2 border-slate-900 bg-amber-100 flex items-center justify-center text-[10px] font-bold text-slate-800 z-20">🚪 Door</div>
+
+            <!-- White Boundary Box -->
+            <div class="absolute top-12 left-16 right-12 bottom-12 border-2 border-white pointer-events-none"></div>
+          </div>
+
+          <!-- Desk Clusters Container -->
+          <div id="deskContainer" class="absolute inset-0 z-10">
+            <!-- Dynamic Desk Clusters (Pods 1 to 8) -->
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // Initial sample dataset
+    const sampleMales = ["William", "Harry", "William", "Ambrose", "Heiden", "Ricky", "Quintus", "Adam", "Jeremy", "Rex", "Anakin", "Quinton", "Andrew"];
+    const sampleFemales = ["Anna", "Megan", "Hannah", "Freida", "Kacy", "Irissa", "Sophia", "Valerie", "Cindy", "Natalie", "Amelia", "Helen", "Bowie", "Kayan"];
+
+    let students = []; // { id, name, gender, assignedSeat }
+    let zoomLevel = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let isPanning = false;
+    let startX = 0;
+    let startY = 0;
+
+    // Pod Layout Definitions with generous widths/heights
+    const pods = [
+      { id: '1', number: 1, top: '80px', left: '500px', width: '350px', height: '175px', layout: 'top-L' },
+      { id: '2', number: 2, top: '245px', left: '880px', width: '240px', height: '175px', layout: 'block-2x2' },
+      { id: '3', number: 3, top: '465px', left: '880px', width: '240px', height: '175px', layout: 'block-2x2' },
+      { id: '4', number: 4, top: '600px', left: '500px', width: '350px', height: '175px', layout: 'bottom-L' },
+      { id: '5', number: 5, top: '355px', left: '480px', width: '240px', height: '175px', layout: 'block-2x2' },
+      { id: '6', number: 6, top: '80px', left: '100px', width: '350px', height: '175px', layout: 'top-L' },
+      { id: '7', number: 7, top: '355px', left: '100px', width: '240px', height: '175px', layout: 'block-2x2' },
+      { id: '8', number: 8, top: '600px', left: '100px', width: '350px', height: '175px', layout: 'bottom-L' },
+    ];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+
+      // Pre-fill default lists
+      document.getElementById('maleInput').value = sampleMales.join('\n');
+      document.getElementById('femaleInput').value = sampleFemales.join('\n');
+
+      renderClassroomGrid();
+      processInputs();
+
+      // Event Listeners
+      document.getElementById('btnGenerate').addEventListener('click', processInputs);
+      document.getElementById('btnRandomAssign').addEventListener('click', autoAssignRandom);
+      document.getElementById('btnBalancedAssign').addEventListener('click', autoAssignBalanced);
+      document.getElementById('btnReset').addEventListener('click', resetAssignments);
+      document.getElementById('btnExport').addEventListener('click', exportToPNG);
+
+      document.getElementById('maleInput').addEventListener('input', updateCounts);
+      document.getElementById('femaleInput').addEventListener('input', updateCounts);
+
+      // Zoom Listeners
+      document.getElementById('btnZoomIn').addEventListener('click', () => setZoom(zoomLevel + 0.15));
+      document.getElementById('btnZoomOut').addEventListener('click', () => setZoom(zoomLevel - 0.15));
+      document.getElementById('btnZoomReset').addEventListener('click', () => resetView());
+
+      const container = document.getElementById('canvasContainer');
+      
+      // Prevent context menu when right-click dragging
+      container.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+      });
+
+      // Pan with Mouse Drag on Canvas Background or Right/Middle Click
+      container.addEventListener('mousedown', (e) => {
+        const isCard = e.target.closest('.student-card');
+        const isDeskSlot = e.target.closest('.desk-zone') && !e.target.closest('.student-card');
+
+        if (!isCard || e.button === 1 || e.button === 2) {
+          if (!isDeskSlot || e.button === 1 || e.button === 2) {
+            isPanning = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+            container.style.cursor = 'grabbing';
+            if (e.button === 2) e.preventDefault();
+          }
+        }
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        setTransform();
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (isPanning) {
+          isPanning = false;
+          container.style.cursor = 'grab';
+        }
+      });
+
+      // Touch Panning
+      container.addEventListener('touchstart', (e) => {
+        const isCard = e.target.closest('.student-card');
+        if (e.touches.length === 1 && !isCard) {
+          isPanning = true;
+          startX = e.touches[0].clientX - panX;
+          startY = e.touches[0].clientY - panY;
+        }
+      }, { passive: true });
+
+      window.addEventListener('touchmove', (e) => {
+        if (!isPanning || e.touches.length !== 1) return;
+        panX = e.touches[0].clientX - startX;
+        panY = e.touches[0].clientY - startY;
+        setTransform();
+      }, { passive: true });
+
+      window.addEventListener('touchend', () => {
+        isPanning = false;
+      });
+
+      // Mouse Wheel Zoom
+      container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.deltaY < 0) setZoom(zoomLevel + 0.08);
+        else setZoom(zoomLevel - 0.08);
+      }, { passive: false });
+
+      updateCounts();
+    });
+
+    function setTransform() {
+      const wrapper = document.getElementById('canvasWrapper');
+      wrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      document.getElementById('zoomLabel').innerText = `${Math.round(zoomLevel * 100)}%`;
+    }
+
+    function setZoom(newZoom) {
+      zoomLevel = Math.max(0.4, Math.min(2.2, newZoom));
+      setTransform();
+    }
+
+    function resetView() {
+      zoomLevel = 1.0;
+      panX = 0;
+      panY = 0;
+      setTransform();
+    }
+
+    function updateCounts() {
+      const m = parseList(document.getElementById('maleInput').value);
+      const f = parseList(document.getElementById('femaleInput').value);
+      document.getElementById('m-count').innerText = m.length;
+      document.getElementById('f-count').innerText = f.length;
+    }
+
+    function parseList(text) {
+      return text.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+    }
+
+    function processInputs() {
+      const males = parseList(document.getElementById('maleInput').value);
+      const females = parseList(document.getElementById('femaleInput').value);
+
+      students = [
+        ...males.map((name, idx) => ({ id: `m_${idx}_${name.replace(/\s+/g, '_')}`, name, gender: 'M', assignedSeat: null })),
+        ...females.map((name, idx) => ({ id: `f_${idx}_${name.replace(/\s+/g, '_')}`, name, gender: 'F', assignedSeat: null }))
+      ];
+
+      resetAssignments();
+    }
+
+    function renderClassroomGrid() {
+      const container = document.getElementById('deskContainer');
+      container.innerHTML = '';
+
+      pods.forEach((pod, pIdx) => {
+        const podWrapper = document.createElement('div');
+        podWrapper.className = 'absolute';
+        podWrapper.style.top = pod.top;
+        podWrapper.style.left = pod.left;
+        podWrapper.style.width = pod.width;
+        podWrapper.style.height = pod.height;
+
+        const badge = document.createElement('div');
+        badge.className = 'absolute -top-3.5 left-2 z-30 px-2 py-0.5 rounded-full bg-white border-2 border-slate-900 text-slate-900 font-extrabold text-[11px] flex items-center justify-center shadow-md select-none pointer-events-none';
+        badge.innerText = `Group ${pod.number}`;
+        podWrapper.appendChild(badge);
+
+        if (pod.layout === 'block-2x2') {
+          const grid = document.createElement('div');
+          grid.className = 'grid grid-cols-2 grid-rows-2 gap-1.5 w-full h-full p-1 bg-[#1a3838] border-2 border-slate-900 rounded-md shadow-md';
+          for (let i = 0; i < 4; i++) {
+            grid.appendChild(createDeskSlot(pIdx, i));
+          }
+          podWrapper.appendChild(grid);
+        } 
+        else if (pod.layout === 'top-L') {
+          const containerDiv = document.createElement('div');
+          containerDiv.className = 'w-full h-full p-1 bg-[#1a3838] border-2 border-slate-900 rounded-md shadow-md relative flex flex-col justify-between';
+
+          const topRow = document.createElement('div');
+          topRow.className = 'grid grid-cols-3 gap-1.5 h-[48%] w-full';
+          topRow.appendChild(createDeskSlot(pIdx, 0));
+          topRow.appendChild(createDeskSlot(pIdx, 1));
+          topRow.appendChild(createDeskSlot(pIdx, 2));
+
+          const bottomRow = document.createElement('div');
+          bottomRow.className = 'grid grid-cols-3 gap-1.5 h-[48%] w-full';
+          bottomRow.appendChild(createDeskSlot(pIdx, 3));
+          bottomRow.appendChild(document.createElement('div'));
+          bottomRow.appendChild(document.createElement('div'));
+
+          containerDiv.appendChild(topRow);
+          containerDiv.appendChild(bottomRow);
+          podWrapper.appendChild(containerDiv);
+        }
+        else if (pod.layout === 'bottom-L') {
+          const containerDiv = document.createElement('div');
+          containerDiv.className = 'w-full h-full p-1 bg-[#1a3838] border-2 border-slate-900 rounded-md shadow-md relative flex flex-col justify-between';
+
+          const topRow = document.createElement('div');
+          topRow.className = 'grid grid-cols-3 gap-1.5 h-[48%] w-full';
+          topRow.appendChild(createDeskSlot(pIdx, 0));
+          topRow.appendChild(document.createElement('div'));
+          topRow.appendChild(document.createElement('div'));
+
+          const bottomRow = document.createElement('div');
+          bottomRow.className = 'grid grid-cols-3 gap-1.5 h-[48%] w-full';
+          bottomRow.appendChild(createDeskSlot(pIdx, 1));
+          bottomRow.appendChild(createDeskSlot(pIdx, 2));
+          bottomRow.appendChild(createDeskSlot(pIdx, 3));
+
+          containerDiv.appendChild(topRow);
+          containerDiv.appendChild(bottomRow);
+          podWrapper.appendChild(containerDiv);
+        }
+
+        container.appendChild(podWrapper);
+      });
+    }
+
+    function createDeskSlot(pIdx, dIdx) {
+      const seatId = `seat_${pIdx}_${dIdx}`;
+      const desk = document.createElement('div');
+      desk.id = seatId;
+      desk.dataset.seatId = seatId;
+      desk.className = 'desk-zone bg-slate-100/95 border border-slate-400 rounded-md flex items-center justify-center p-1 text-center relative hover:border-blue-500 shadow-inner h-full w-full';
+      desk.setAttribute('ondragover', 'allowDrop(event)');
+      desk.setAttribute('ondragleave', 'leaveDrop(event)');
+      desk.setAttribute('ondrop', 'dropToSeat(event)');
+
+      desk.innerHTML = `<span class="desk-placeholder text-[10px] text-slate-400 font-medium select-none">Desk ${dIdx + 1}</span>`;
+      return desk;
+    }
+
+    function renderRoster() {
+      const pool = document.getElementById('unassignedPool');
+      pool.innerHTML = '';
+
+      // Reset all desk slots to default placeholder before populating
+      document.querySelectorAll('.desk-zone').forEach((desk, idx) => {
+        desk.innerHTML = `<span class="desk-placeholder text-[10px] text-slate-400 font-medium select-none">Desk ${(idx % 4) + 1}</span>`;
+      });
+
+      let unassignedCount = 0;
+
+      students.forEach(student => {
+        const card = createStudentCard(student);
+        
+        if (!student.assignedSeat) {
+          card.classList.add('w-[110px]', 'h-[36px]');
+          pool.appendChild(card);
+          unassignedCount++;
+        } else {
+          card.classList.add('w-full', 'h-full');
+          const seat = document.getElementById(student.assignedSeat);
+          if (seat) {
+            seat.innerHTML = '';
+            seat.appendChild(card);
+          }
+        }
+      });
+
+      document.getElementById('unassignedCount').innerText = unassignedCount;
+    }
+
+    function createStudentCard(student) {
+      const card = document.createElement('div');
+      card.id = student.id;
+      card.draggable = true;
+      card.setAttribute('ondragstart', 'dragStart(event)');
+      card.setAttribute('ondragend', 'dragEnd(event)');
+
+      const isMale = student.gender === 'M';
+      card.className = `student-card p-0.5 rounded-md border font-bold flex items-center justify-center text-center shadow-sm transition ${
+        isMale 
+          ? 'bg-blue-50/95 border-blue-400 text-blue-950 hover:bg-blue-100' 
+          : 'bg-pink-50/95 border-pink-400 text-pink-950 hover:bg-pink-100'
+      }`;
+
+      const iconSvg = isMale
+        ? `<svg class="w-3.5 h-3.5 text-blue-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>`
+        : `<svg class="w-3.5 h-3.5 text-pink-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 11v4m-2-2h4"/></svg>`;
+
+      let fontClass = 'text-[12px]';
+      if (student.name.length > 7) {
+        fontClass = 'text-[10px]';
+      } else if (student.name.length > 5) {
+        fontClass = 'text-[11px]';
+      }
+
+      card.innerHTML = `
+        <div class="flex items-center justify-center gap-1 w-full h-full px-1 overflow-visible" title="${student.name}">
+          ${iconSvg}
+          <span class="${fontClass} font-bold text-slate-900 leading-tight text-center whitespace-normal break-words select-none">${student.name}</span>
+        </div>
+      `;
+      return card;
+    }
+
+    // Drag and Drop Logic
+    function dragStart(e) {
+      e.dataTransfer.setData('text/plain', e.currentTarget.id);
+      e.currentTarget.classList.add('dragging');
+    }
+
+    function dragEnd(e) {
+      e.currentTarget.classList.remove('dragging');
+    }
+
+    function allowDrop(e) {
+      e.preventDefault();
+      const zone = e.currentTarget;
+      if (zone.classList.contains('desk-zone')) {
+        zone.classList.add('drag-over');
+      }
+    }
+
+    function leaveDrop(e) {
+      const zone = e.currentTarget;
+      if (zone.classList.contains('desk-zone')) {
+        zone.classList.remove('drag-over');
+      }
+    }
+
+    function dropToSeat(e) {
+      e.preventDefault();
+      const zone = e.currentTarget;
+      zone.classList.remove('drag-over');
+
+      const studentId = e.dataTransfer.getData('text/plain');
+      const student = students.find(s => s.id === studentId);
+
+      if (!student) return;
+
+      const targetSeatId = zone.dataset.seatId;
+
+      // If target seat is occupied, swap student locations
+      const existingStudent = students.find(s => s.assignedSeat === targetSeatId);
+      if (existingStudent) {
+        existingStudent.assignedSeat = student.assignedSeat;
+      }
+
+      student.assignedSeat = targetSeatId;
+      renderRoster();
+    }
+
+    function dropToPool(e) {
+      e.preventDefault();
+      const studentId = e.dataTransfer.getData('text/plain');
+      const student = students.find(s => s.id === studentId);
+
+      if (student) {
+        student.assignedSeat = null;
+        renderRoster();
+      }
+    }
+
+    function resetAssignments() {
+      students.forEach(s => s.assignedSeat = null);
+      renderRoster();
+    }
+
+    function autoAssignRandom() {
+      resetAssignments();
+
+      const availableSeats = Array.from(document.querySelectorAll('.desk-zone')).map(d => d.dataset.seatId);
+      const shuffledStudents = [...students].sort(() => Math.random() - 0.5);
+
+      shuffledStudents.forEach((student, idx) => {
+        if (idx < availableSeats.length) {
+          student.assignedSeat = availableSeats[idx];
+        }
+      });
+
+      renderRoster();
+    }
+
+    function autoAssignBalanced() {
+      resetAssignments();
+
+      const males = [...students.filter(s => s.gender === 'M')].sort(() => Math.random() - 0.5);
+      const females = [...students.filter(s => s.gender === 'F')].sort(() => Math.random() - 0.5);
+
+      pods.forEach((_, pIdx) => {
+        const podSeats = [
+          `seat_${pIdx}_0`,
+          `seat_${pIdx}_1`,
+          `seat_${pIdx}_2`,
+          `seat_${pIdx}_3`
+        ];
+
+        const seatsForMale = [podSeats[0], podSeats[3]];
+        const seatsForFemale = [podSeats[1], podSeats[2]];
+
+        seatsForMale.forEach(seatId => {
+          if (males.length > 0) {
+            males.pop().assignedSeat = seatId;
+          } else if (females.length > 0) {
+            females.pop().assignedSeat = seatId;
+          }
+        });
+
+        seatsForFemale.forEach(seatId => {
+          if (females.length > 0) {
+            females.pop().assignedSeat = seatId;
+          } else if (males.length > 0) {
+            males.pop().assignedSeat = seatId;
+          }
+        });
+      });
+
+      renderRoster();
+    }
+
+    function exportToPNG() {
+      const canvasArea = document.getElementById('classroomCanvas');
+      
+      const currentZoom = zoomLevel;
+      const currentPanX = panX;
+      const currentPanY = panY;
+
+      resetView();
+
+      setTimeout(() => {
+        html2canvas(canvasArea, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#cfa170',
+          logging: false
+        }).then(canvas => {
+          const link = document.createElement('a');
+          link.download = `seating-arrangement-${new Date().toISOString().slice(0, 10)}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          
+          zoomLevel = currentZoom;
+          panX = currentPanX;
+          panY = currentPanY;
+          setTransform();
+        });
+      }, 50);
+    }
+  </script>
+</body>
+</html>
