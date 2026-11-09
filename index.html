@@ -225,11 +225,11 @@
       { id: '1', number: 1, top: '80px', left: '500px', width: '350px', height: '175px', layout: 'top-L' },
       { id: '2', number: 2, top: '245px', left: '880px', width: '240px', height: '175px', layout: 'block-2x2' },
       { id: '3', number: 3, top: '465px', left: '880px', width: '240px', height: '175px', layout: 'block-2x2' },
-      { id: '4', number: 4, top: '600px', left: '500px', width: '350px', height: '175px', layout: 'bottom-L' },
-      { id: '5', number: 5, top: '355px', left: '480px', width: '240px', height: '175px', layout: 'block-2x2' },
+      { id: '4', number: 4, top: '650px', left: '500px', width: '350px', height: '175px', layout: 'bottom-L' },
+      { id: '5', number: 5, top: '355px', left: '460px', width: '350px', height: '175px', layout: 'block-5-slot' },
       { id: '6', number: 6, top: '80px', left: '100px', width: '350px', height: '175px', layout: 'top-L' },
-      { id: '7', number: 7, top: '355px', left: '100px', width: '240px', height: '175px', layout: 'block-2x2' },
-      { id: '8', number: 8, top: '600px', left: '100px', width: '350px', height: '175px', layout: 'bottom-L' },
+      { id: '7', number: 7, top: '355px', left: '100px', width: '350px', height: '175px', layout: 'block-5-slot' },
+      { id: '8', number: 8, top: '650px', left: '100px', width: '350px', height: '175px', layout: 'bottom-L' },
     ];
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -390,7 +390,30 @@
             grid.appendChild(createDeskSlot(pIdx, i));
           }
           podWrapper.appendChild(grid);
-        } 
+        }
+        else if (pod.layout === 'block-5-slot') {
+          // 5-slot pod (Group 5 and Group 7): Whiteboard is on the RIGHT.
+          // 3 desks behind on the LEFT column, 2 desks in front on the RIGHT column facing the whiteboard.
+          const containerDiv = document.createElement('div');
+          containerDiv.className = 'w-full h-full p-1 bg-[#1a3838] border-2 border-slate-900 rounded-md shadow-md grid grid-cols-2 gap-1.5';
+
+          // Left column: 3 desks in the back
+          const backColumn = document.createElement('div');
+          backColumn.className = 'grid grid-rows-3 gap-1.5 h-full w-full';
+          backColumn.appendChild(createDeskSlot(pIdx, 0));
+          backColumn.appendChild(createDeskSlot(pIdx, 1));
+          backColumn.appendChild(createDeskSlot(pIdx, 2));
+
+          // Right column: 2 desks in front (centered vertically facing whiteboard)
+          const frontColumn = document.createElement('div');
+          frontColumn.className = 'flex flex-col justify-center gap-1.5 h-full w-full py-2';
+          frontColumn.appendChild(createDeskSlot(pIdx, 3));
+          frontColumn.appendChild(createDeskSlot(pIdx, 4));
+
+          containerDiv.appendChild(backColumn);
+          containerDiv.appendChild(frontColumn);
+          podWrapper.appendChild(containerDiv);
+        }
         else if (pod.layout === 'top-L') {
           const containerDiv = document.createElement('div');
           containerDiv.className = 'w-full h-full p-1 bg-[#1a3838] border-2 border-slate-900 rounded-md shadow-md relative flex flex-col justify-between';
@@ -599,31 +622,25 @@
       const males = [...students.filter(s => s.gender === 'M')].sort(() => Math.random() - 0.5);
       const females = [...students.filter(s => s.gender === 'F')].sort(() => Math.random() - 0.5);
 
-      pods.forEach((_, pIdx) => {
-        const podSeats = [
-          `seat_${pIdx}_0`,
-          `seat_${pIdx}_1`,
-          `seat_${pIdx}_2`,
-          `seat_${pIdx}_3`
-        ];
+      pods.forEach((pod, pIdx) => {
+        const numSeats = pod.layout === 'block-5-slot' ? 5 : 4;
+        const podSeats = [];
+        for (let i = 0; i < numSeats; i++) {
+          podSeats.push(`seat_${pIdx}_${i}`);
+        }
 
-        const seatsForMale = [podSeats[0], podSeats[3]];
-        const seatsForFemale = [podSeats[1], podSeats[2]];
-
-        seatsForMale.forEach(seatId => {
-          if (males.length > 0) {
-            males.pop().assignedSeat = seatId;
-          } else if (females.length > 0) {
-            females.pop().assignedSeat = seatId;
+        podSeats.forEach((seatId, sIdx) => {
+          // Alternate gender allocation
+          if (sIdx % 2 === 0) {
+            if (males.length > 0) student = males.pop();
+            else if (females.length > 0) student = females.pop();
+            else return;
+          } else {
+            if (females.length > 0) student = females.pop();
+            else if (males.length > 0) student = males.pop();
+            else return;
           }
-        });
-
-        seatsForFemale.forEach(seatId => {
-          if (females.length > 0) {
-            females.pop().assignedSeat = seatId;
-          } else if (males.length > 0) {
-            males.pop().assignedSeat = seatId;
-          }
+          student.assignedSeat = seatId;
         });
       });
 
